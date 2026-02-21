@@ -342,6 +342,7 @@ pub const App = struct {
 pub const Platform = union(PlatformTag) {
     macos: MacOS,
     ios: IOS,
+    opengl: OpenGL,
 
     // If our build target for libghostty is not darwin then we do
     // not include macos support at all.
@@ -355,6 +356,19 @@ pub const Platform = union(PlatformTag) {
         uiview: objc.Object,
     } else void;
 
+    const GlProc = *const fn () callconv(.c) void;
+
+    pub const OpenGL = struct {
+        /// Function to get OpenGL procedure addresses (GLFW-style).
+        get_proc_address: *const fn ([*:0]const u8) callconv(.c) ?GlProc,
+        /// Callback to make the GL context current on the calling thread.
+        make_context_current: *const fn (?*anyopaque) callconv(.c) void,
+        /// Callback to swap front/back buffers after rendering a frame.
+        swap_buffers: *const fn (?*anyopaque) callconv(.c) void,
+        /// Opaque data passed to callbacks.
+        gl_userdata: ?*anyopaque,
+    };
+
     // The C ABI compatible version of this union. The tag is expected
     // to be stored elsewhere.
     pub const C = extern union {
@@ -364,6 +378,13 @@ pub const Platform = union(PlatformTag) {
 
         ios: extern struct {
             uiview: ?*anyopaque,
+        },
+
+        opengl: extern struct {
+            get_proc_address: ?*const fn ([*:0]const u8) callconv(.c) ?GlProc,
+            make_context_current: ?*const fn (?*anyopaque) callconv(.c) void,
+            swap_buffers: ?*const fn (?*anyopaque) callconv(.c) void,
+            gl_userdata: ?*anyopaque,
         },
     };
 
@@ -384,6 +405,16 @@ pub const Platform = union(PlatformTag) {
                     break :ios error.UIViewMustBeSet);
                 break :ios .{ .ios = .{ .uiview = uiview } };
             } else error.UnsupportedPlatform,
+
+            .opengl => opengl: {
+                const cfg = c_platform.opengl;
+                break :opengl .{ .opengl = .{
+                    .get_proc_address = cfg.get_proc_address orelse return error.GetProcAddressMustBeSet,
+                    .make_context_current = cfg.make_context_current orelse return error.MakeContextCurrentMustBeSet,
+                    .swap_buffers = cfg.swap_buffers orelse return error.SwapBuffersMustBeSet,
+                    .gl_userdata = cfg.gl_userdata,
+                } };
+            },
         };
     }
 };
@@ -394,6 +425,7 @@ pub const PlatformTag = enum(c_int) {
 
     macos = 1,
     ios = 2,
+    opengl = 3,
 };
 
 pub const EnvVar = extern struct {

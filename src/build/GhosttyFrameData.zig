@@ -9,6 +9,18 @@ const DistResource = @import("GhosttyDist.zig").Resource;
 output: std.Build.LazyPath,
 
 pub fn init(b: *std.Build) !GhosttyFrameData {
+    // On Windows hosts, framegen fails (uses POSIX scandir).
+    // Provide a stub with empty data ÔÇö trolley doesn't use ghostty +boo.
+    if (b.graph.host.result.os.tag == .windows) {
+        const wf = b.addWriteFiles();
+        const zig_file = wf.add("framedata.zig",
+            \\//! Stub framedata for Windows builds
+            \\pub const compressed = "";
+            \\
+        );
+        return .{ .output = zig_file };
+    }
+
     const dist = distResources(b);
 
     // Generate the Zig source file that embeds the compressed data

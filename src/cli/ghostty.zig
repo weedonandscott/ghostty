@@ -107,6 +107,7 @@ pub const Action = enum {
                     // for all commands by just changing this one place.
 
                     if (std.mem.eql(u8, field.name, @tagName(self))) {
+                        if (!@hasDecl(help_strings.Action, field.name)) break :err err;
                         var buffer: [1024]u8 = undefined;
                         var stdout_writer = std.fs.File.stdout().writer(&buffer);
                         const stdout = &stdout_writer.interface;

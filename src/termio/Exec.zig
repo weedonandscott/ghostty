@@ -1417,6 +1417,10 @@ fn execCommand(
     // the proper environment variables set, a login shell, and proper
     // hushlogin behavior.
     if (comptime builtin.target.os.tag.isDarwin()) darwin: {
+        // Direct commands don't need login shell semantics — skip
+        // the login(1) wrapper and fall through to the POSIX path.
+        if (command == .direct) break :darwin;
+
         const passwd = passwdpkg.get(alloc) catch |err| {
             log.warn("failed to read passwd, not using a login shell err={}", .{err});
             break :darwin;

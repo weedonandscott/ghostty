@@ -44,6 +44,10 @@ pub fn initStatic(
     var lib_list = try deps.add(lib);
     try lib_list.append(b.allocator, lib.getEmittedBin());
 
+    // Always install the artifact so downstream consumers can use
+    // dep.artifact("ghostty") to get the compile step with all deps linked.
+    b.installArtifact(lib);
+
     if (!deps.config.target.result.os.tag.isDarwin()) return .{
         .step = &lib.step,
         .output = lib.getEmittedBin(),
