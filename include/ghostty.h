@@ -38,6 +38,7 @@ typedef enum {
   GHOSTTY_PLATFORM_INVALID,
   GHOSTTY_PLATFORM_MACOS,
   GHOSTTY_PLATFORM_IOS,
+  GHOSTTY_PLATFORM_OPENGL,
 } ghostty_platform_e;
 
 typedef enum {
@@ -426,9 +427,19 @@ typedef struct {
   void* uiview;
 } ghostty_platform_ios_s;
 
+typedef void (*ghostty_gl_proc_fn)(void);
+
+typedef struct {
+  ghostty_gl_proc_fn (*get_proc_address)(const char* name);
+  void (*make_context_current)(void* userdata);
+  void (*swap_buffers)(void* userdata);
+  void* gl_userdata;
+} ghostty_platform_opengl_s;
+
 typedef union {
   ghostty_platform_macos_s macos;
   ghostty_platform_ios_s ios;
+  ghostty_platform_opengl_s opengl;
 } ghostty_platform_u;
 
 typedef enum {

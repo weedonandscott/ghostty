@@ -251,8 +251,11 @@ pub fn focusGained(
         // only do this if it isn't already running. We use the termios
         // callback because that'll trigger an immediate state check AND
         // start the timer.
-        if (execdata.termios_timer_c.state() != .active) {
-            _ = termiosTimer(td, undefined, undefined, {});
+        // We don't support this on Windows yet (no termios).
+        if (comptime builtin.os.tag != .windows) {
+            if (execdata.termios_timer_c.state() != .active) {
+                _ = termiosTimer(td, undefined, undefined, {});
+            }
         }
     }
 }
@@ -1417,6 +1420,10 @@ fn execCommand(
     // the proper environment variables set, a login shell, and proper
     // hushlogin behavior.
     if (comptime builtin.target.os.tag.isDarwin()) darwin: {
+        // Direct commands don't need login shell semantics — skip
+        // the login(1) wrapper and fall through to the POSIX path.
+        if (command == .direct) break :darwin;
+
         const passwd = passwdpkg.get(alloc) catch |err| {
             log.warn("failed to read passwd, not using a login shell err={}", .{err});
             break :darwin;

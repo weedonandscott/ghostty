@@ -10,6 +10,24 @@ exe: *std.Build.Step.Compile,
 output: std.Build.LazyPath,
 
 pub fn init(b: *std.Build, cfg: *const Config) !HelpStrings {
+    // On Windows hosts, helpgen fails (ftruncate on stdout not supported),
+    // and we don't need real help strings for trolley anyway.
+    // Provide a stub module with empty structs so @hasDecl checks return false.
+    if (b.graph.host.result.os.tag == .windows) {
+        const wf = b.addWriteFiles();
+        const output = wf.add("helpgen.zig",
+            \\// Stub help strings for Windows builds
+            \\pub const Config = struct {};
+            \\pub const Action = struct {};
+            \\pub const KeybindAction = struct {};
+            \\
+        );
+        return .{
+            .exe = undefined,
+            .output = output,
+        };
+    }
+
     const exe = b.addExecutable(.{
         .name = "helpgen",
         .root_module = b.createModule(.{

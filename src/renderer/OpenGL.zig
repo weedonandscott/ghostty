@@ -45,6 +45,13 @@ blending: configpkg.Config.AlphaBlending,
 /// The most recently presented target, in case we need to present it again.
 last_target: ?Target = null,
 
+/// Callback to swap front/back buffers, set by the embedded OpenGL platform.
+swap_buffers_cb: ?*const fn (?*anyopaque) callconv(.c) void = null,
+swap_buffers_userdata: ?*anyopaque = null,
+
+/// Stored surface reference for updating the GL viewport on the renderer thread.
+rt_surface: ?*apprt.Surface = null,
+
 /// NOTE: This is an error{}!OpenGL instead of just OpenGL for parity with
 ///       Metal, since it needs to be fallible so does this, even though it
 ///       can't actually fail.
@@ -160,8 +167,6 @@ fn prepareContext(getProcAddress: anytype) !void {
 
 /// This is called early right after surface creation.
 pub fn surfaceInit(surface: *apprt.Surface) !void {
-    _ = surface;
-
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
@@ -170,9 +175,14 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
         => try prepareContext(null),
 
         apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
+            // For the embedded apprt with the OpenGL platform, load
+            // GL bindings on the main thread so Renderer.init can
+            // create buffers and shaders before the renderer thread
+            // takes over.
+            switch (surface.platform) {
+                .opengl => |ogl| try prepareContext(ogl.get_proc_address),
+                else => {},
+            }
         },
     }
 
@@ -190,14 +200,22 @@ pub fn surfaceInit(surface: *apprt.Surface) !void {
 /// thread for final main thread setup requirements.
 pub fn finalizeSurfaceInit(self: *const OpenGL, surface: *apprt.Surface) !void {
     _ = self;
-    _ = surface;
+
+    switch (apprt.runtime) {
+        apprt.embedded => {
+            // Release the GL context from the main thread so the
+            // renderer thread can acquire it.
+            switch (surface.platform) {
+                .opengl => |ogl| ogl.make_context_current(null),
+                else => {},
+            }
+        },
+        else => {},
+    }
 }
 
 /// Callback called by renderer.Thread when it begins.
-pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
-    _ = self;
-    _ = surface;
-
+pub fn threadEnter(self: *OpenGL, surface: *apprt.Surface) !void {
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
@@ -209,17 +227,28 @@ pub fn threadEnter(self: *const OpenGL, surface: *apprt.Surface) !void {
         },
 
         apprt.embedded => {
-            // TODO(mitchellh): this does nothing today to allow libghostty
-            // to compile for OpenGL targets but libghostty is strictly
-            // broken for rendering on this platforms.
+            // For the embedded apprt with the OpenGL platform, acquire
+            // the GL context on the renderer thread and load GL bindings.
+            switch (surface.platform) {
+                .opengl => |ogl| {
+                    ogl.make_context_current(ogl.gl_userdata);
+                    errdefer ogl.make_context_current(null);
+                    try prepareContext(ogl.get_proc_address);
+
+                    // Store callbacks and surface so drawFrame can swap buffers
+                    // and update the GL viewport.
+                    self.swap_buffers_cb = ogl.swap_buffers;
+                    self.swap_buffers_userdata = ogl.gl_userdata;
+                    self.rt_surface = surface;
+                },
+                else => {},
+            }
         },
     }
 }
 
 /// Callback called by renderer.Thread when it exits.
-pub fn threadExit(self: *const OpenGL) void {
-    _ = self;
-
+pub fn threadExit(self: *OpenGL) void {
     switch (apprt.runtime) {
         else => @compileError("unsupported app runtime for OpenGL"),
 
@@ -229,7 +258,17 @@ pub fn threadExit(self: *const OpenGL) void {
         },
 
         apprt.embedded => {
-            // TODO: see threadEnter
+            // Release the GL context from the renderer thread before unloading.
+            if (self.rt_surface) |surface| {
+                switch (surface.platform) {
+                    .opengl => |ogl| ogl.make_context_current(null),
+                    else => {},
+                }
+            }
+            gl.glad.unload();
+            self.swap_buffers_cb = null;
+            self.swap_buffers_userdata = null;
+            self.rt_surface = null;
         },
     }
 }
@@ -251,16 +290,28 @@ pub fn displayRealized(self: *const OpenGL) void {
 
 /// Actions taken before doing anything in `drawFrame`.
 ///
-/// Right now there's nothing we need to do for OpenGL.
+/// For the embedded OpenGL platform, update the GL viewport to match
+/// the current surface size. This is necessary because the resize
+/// callback runs on the main thread but the GL context lives on the
+/// renderer thread.
 pub fn drawFrameStart(self: *OpenGL) void {
-    _ = self;
+    if (self.rt_surface) |surface| {
+        const w = surface.size.width;
+        const h = surface.size.height;
+        if (w > 0 and h > 0) {
+            gl.glad.context.Viewport.?(0, 0, @intCast(w), @intCast(h));
+        }
+    }
 }
 
 /// Actions taken after `drawFrame` is done.
 ///
-/// Right now there's nothing we need to do for OpenGL.
+/// For the embedded OpenGL platform, swap front/back buffers so the
+/// compositor can display the rendered frame.
 pub fn drawFrameEnd(self: *OpenGL) void {
-    _ = self;
+    if (self.swap_buffers_cb) |cb| {
+        cb(self.swap_buffers_userdata);
+    }
 }
 
 pub fn initShaders(

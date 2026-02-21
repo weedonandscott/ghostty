@@ -878,7 +878,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         }
 
         /// Callback called by renderer.Thread when it begins.
-        pub fn threadEnter(self: *const Self, surface: *apprt.Surface) !void {
+        pub fn threadEnter(self: *Self, surface: *apprt.Surface) !void {
             // If our API has to do things on thread enter, let it.
             if (@hasDecl(GraphicsAPI, "threadEnter")) {
                 try self.api.threadEnter(surface);
@@ -886,7 +886,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         }
 
         /// Callback called by renderer.Thread when it exits.
-        pub fn threadExit(self: *const Self) void {
+        pub fn threadExit(self: *Self) void {
             // If our API has to do things on thread exit, let it.
             if (@hasDecl(GraphicsAPI, "threadExit")) {
                 self.api.threadExit();
