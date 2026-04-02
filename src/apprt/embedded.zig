@@ -2030,6 +2030,49 @@ pub const CAPI = struct {
         );
     }
 
+    /// Request a screenshot of the next rendered frame. The screenshot
+    /// is written as a PNG to the given null-terminated path. This is
+    /// safe to call from any thread; the actual capture is deferred to
+    /// the renderer thread.
+    export fn ghostty_surface_screenshot(
+        ptr: *Surface,
+        path: [*:0]const u8,
+    ) void {
+        const slice = std.mem.sliceTo(path, 0);
+        ptr.core_surface.requestScreenshot(slice) catch |err| {
+            log.err("screenshot request failed err={}", .{err});
+        };
+    }
+
+    /// Dump the terminal screen content as formatted text.
+    /// format: 0 = plain, 1 = vt (ANSI escape codes), 2 = html.
+    /// Returns the text pointer and length via out_ptr/out_len.
+    /// The caller must free the returned buffer with ghostty_surface_free_dump.
+    /// Returns true on success, false on error.
+    export fn ghostty_surface_text_dump(
+        ptr: *Surface,
+        format: u8,
+        out_ptr: *[*]const u8,
+        out_len: *usize,
+    ) bool {
+        const fmt: terminal.formatter.Format = switch (format) {
+            1 => .vt,
+            2 => .html,
+            else => .plain,
+        };
+        const data = ptr.core_surface.textDump(fmt) catch |err| {
+            log.err("text dump failed err={}", .{err});
+            return false;
+        };
+        out_ptr.* = data.ptr;
+        out_len.* = data.len;
+        return true;
+    }
+
+    export fn ghostty_surface_free_dump(ptr: [*]const u8, len: usize) void {
+        global.alloc.free(ptr[0..len]);
+    }
+
     export fn ghostty_surface_inspector(ptr: *Surface) ?*Inspector {
         return ptr.initInspector() catch |err| {
             log.err("error initializing inspector err={}", .{err});

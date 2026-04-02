@@ -52,6 +52,10 @@ swap_buffers_userdata: ?*anyopaque = null,
 /// Stored surface reference for updating the GL viewport on the renderer thread.
 rt_surface: ?*apprt.Surface = null,
 
+/// Pending screenshot requests. drawFrameEnd captures the framebuffer
+/// once and writes a PNG to each requested path before swapping buffers.
+pending_screenshots: std.ArrayListUnmanaged(rendererpkg.Message.Screenshot) = .empty,
+
 /// NOTE: This is an error{}!OpenGL instead of just OpenGL for parity with
 ///       Metal, since it needs to be fallible so does this, even though it
 ///       can't actually fail.
@@ -307,8 +311,25 @@ pub fn drawFrameStart(self: *OpenGL) void {
 /// Actions taken after `drawFrame` is done.
 ///
 /// For the embedded OpenGL platform, swap front/back buffers so the
-/// compositor can display the rendered frame.
+/// compositor can display the rendered frame. If screenshots were
+/// requested, capture the framebuffer once and write to each path
+/// before swapping.
 pub fn drawFrameEnd(self: *OpenGL) void {
+    if (self.pending_screenshots.items.len > 0) {
+        if (self.last_target) |target| {
+            const screenshot = @import("screenshot.zig");
+            // Capture pixels once, write to all requested paths.
+            screenshot.captureOpenGLMulti(
+                self.alloc,
+                @intCast(target.width),
+                @intCast(target.height),
+                self.pending_screenshots.items,
+            );
+        }
+        for (self.pending_screenshots.items) |ss| ss.deinit();
+        self.pending_screenshots.clearRetainingCapacity();
+    }
+
     if (self.swap_buffers_cb) |cb| {
         cb(self.swap_buffers_userdata);
     }
