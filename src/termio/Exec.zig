@@ -1013,7 +1013,7 @@ const Subprocess = struct {
             .stdin = if (builtin.os.tag == .windows) null else .{ .handle = pty.slave },
             .stdout = if (builtin.os.tag == .windows) null else .{ .handle = pty.slave },
             .stderr = if (builtin.os.tag == .windows) null else .{ .handle = pty.slave },
-            .pseudo_console = if (builtin.os.tag == .windows) pty.pseudo_console else {},
+            .pseudo_console = if (builtin.os.tag == .windows) pty.pseudo_console.handle else {},
             .os_pre_exec = switch (comptime builtin.os.tag) {
                 .windows => null,
                 else => f: {
@@ -1056,6 +1056,7 @@ const Subprocess = struct {
             log.warn("error killing command during cleanup err={}", .{err});
         };
         log.info("started subcommand path={s} pid={?}", .{ self.args[0], cmd.pid });
+        if (comptime builtin.os.tag == .windows) pty.childSpawned();
 
         self.process = .{ .fork_exec = cmd };
         return switch (builtin.os.tag) {

@@ -264,7 +264,7 @@ const WindowsPty = struct {
     in_pipe: windows.HANDLE,
     out_pipe_pty: windows.HANDLE,
     in_pipe_pty: windows.HANDLE,
-    pseudo_console: windows.exp.HPCON,
+    pseudo_console: windows.exp.conpty.PseudoConsole,
     size: winsize,
 
     pub const OpenError = error{Unexpected};
@@ -357,17 +357,26 @@ const WindowsPty = struct {
         try windows.SetHandleInformation(pty.out_pipe, windows.HANDLE_FLAG_INHERIT, 0);
         try windows.SetHandleInformation(pty.out_pipe_pty, windows.HANDLE_FLAG_INHERIT, 0);
 
-        const result = windows.exp.kernel32.CreatePseudoConsole(
+        const result = windows.exp.conpty.CreatePseudoConsole(
             .{ .X = @intCast(size.ws_col), .Y = @intCast(size.ws_row) },
             pty.in_pipe_pty,
             pty.out_pipe_pty,
             0,
             &pty.pseudo_console,
         );
-        if (result != windows.S_OK) return error.Unexpected;
+        if (result != windows.S_OK) {
+            log.warn("CreatePseudoConsole failed hr=0x{X:0>8}", .{windows.exp.conpty.errorCode(result)});
+            return error.Unexpected;
+        }
 
         pty.size = size;
         return pty;
+    }
+
+    /// Call once the child process has taken the pseudoconsole. Closing waits
+    /// for the console host, and it can only exit after this.
+    pub fn childSpawned(self: Pty) void {
+        windows.exp.conpty.releaseReference(self.pseudo_console);
     }
 
     pub fn deinit(self: *Pty) void {
@@ -375,7 +384,7 @@ const WindowsPty = struct {
         _ = windows.CloseHandle(self.in_pipe);
         _ = windows.CloseHandle(self.out_pipe_pty);
         _ = windows.CloseHandle(self.out_pipe);
-        _ = windows.exp.kernel32.ClosePseudoConsole(self.pseudo_console);
+        windows.exp.conpty.ClosePseudoConsole(self.pseudo_console);
         self.* = undefined;
     }
 
@@ -390,12 +399,15 @@ const WindowsPty = struct {
 
     /// Set the size of the pty.
     pub fn setSize(self: *Pty, size: winsize) SetSizeError!void {
-        const result = windows.exp.kernel32.ResizePseudoConsole(
+        const result = windows.exp.conpty.ResizePseudoConsole(
             self.pseudo_console,
             .{ .X = @intCast(size.ws_col), .Y = @intCast(size.ws_row) },
         );
 
-        if (result != windows.S_OK) return error.ResizeFailed;
+        if (result != windows.S_OK) {
+            log.warn("ResizePseudoConsole failed hr=0x{X:0>8}", .{windows.exp.conpty.errorCode(result)});
+            return error.ResizeFailed;
+        }
         self.size = size;
     }
 };
